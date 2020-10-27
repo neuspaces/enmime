@@ -68,6 +68,12 @@ func (p MailBuilder) To(name, addr string) MailBuilder {
 	return p
 }
 
+// ToAddr returns a copy of MailBuilder with the specified To address appended to the To header.
+func (p MailBuilder) ToAddr(to mail.Address) MailBuilder {
+	p.to = append(p.to, to)
+	return p
+}
+
 // ToAddrs returns a copy of MailBuilder with the specified To addresses.
 func (p MailBuilder) ToAddrs(to []mail.Address) MailBuilder {
 	p.to = to
