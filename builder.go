@@ -3,6 +3,7 @@ package enmime
 import (
 	"bytes"
 	"errors"
+	"io"
 	"io/ioutil"
 	"mime"
 	"net/mail"
@@ -307,17 +308,25 @@ func (p MailBuilder) Build() (*Part, error) {
 	return root, nil
 }
 
-// Send encodes the message and sends it via the SMTP server specified by addr.  Send uses
-// net/smtp.SendMail, and accepts the same authentication parameters.
-func (p MailBuilder) Send(addr string, a smtp.Auth) error {
+type PreparedMail struct {
+	from string
+	to []string
+	msg []byte
+}
+
+func (p *PreparedMail) SendWith(s Sender) error {
+	return s.Send(p.from, p.to, bytes.NewBuffer(p.msg))
+}
+
+func (p MailBuilder) Prepare() (*PreparedMail, error) {
 	buf := &bytes.Buffer{}
 	root, err := p.Build()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	err = root.Encode(buf)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	recips := make([]string, 0, len(p.to)+len(p.cc)+len(p.bcc))
 	for _, a := range p.to {
@@ -329,7 +338,32 @@ func (p MailBuilder) Send(addr string, a smtp.Auth) error {
 	for _, a := range p.bcc {
 		recips = append(recips, a.Address)
 	}
-	return smtp.SendMail(addr, a, p.from.Address, recips, buf.Bytes())
+
+	pm := &PreparedMail{
+		from: p.from.Address,
+		to: recips,
+		msg: buf.Bytes(),
+	}
+
+	return pm, nil
+}
+
+// Send encodes the message and sends it via the SMTP server specified by addr.  Send uses
+// net/smtp.SendMail, and accepts the same authentication parameters.
+func (p MailBuilder) Send(addr string, a smtp.Auth) error {
+	pm, err := p.Prepare()
+	if err != nil {
+		return err
+	}
+
+	return pm.SendWith(SendFunc(func(from string, to []string, msg io.WriterTo) error {
+		buf := &bytes.Buffer{}
+		_, err := msg.WriteTo(buf)
+		if err != nil {
+			return err
+		}
+		return smtp.SendMail(addr, a, from, to, buf.Bytes())
+	}))
 }
 
 // Equals uses the reflect package to test two MailBuilder structs for equality, primarily for unit
